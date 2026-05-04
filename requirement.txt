@@ -1,7 +1,12 @@
 streamlit
+langchain
+langchain-community
+langchain-core
+langchain-text-splitters
+langchain-ollama
+chromadb
 pandas
-numpy
-scikit-learn
-torch
-transformers
-sentence-transformers
+pdfplumber
+python-docx
+python-pptx
+openpyxl
