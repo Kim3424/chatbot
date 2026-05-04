@@ -7,11 +7,12 @@ from langchain_ollama import ChatOllama, OllamaEmbeddings
 
 import pandas as pd
 import tempfile, os, subprocess, time
+import pdfplumber
 
 # ================= CONFIG =================
 st.set_page_config(page_title="AI Đọc File Pro", layout="wide")
 
-EMBED_MODEL = "nomic-embed-text"
+EMBED_MODEL = "bge-m3"
 
 # ================= GET MODELS =================
 def get_models():
@@ -72,9 +73,15 @@ def parse_file(path, name):
     try:
         # PDF
         if name.endswith(".pdf"):
-            from langchain_community.document_loaders import PyPDFLoader
-            pages = PyPDFLoader(path).load()
-            return "\n".join([p.page_content for p in pages])
+
+            text = []
+            with pdfplumber.open(path) as pdf:
+                for page in pdf.pages:
+                    t = page.extract_text()
+                    if t:
+                        text.append(t)
+
+            return "\n".join(text)
 
         # WORD
         elif name.endswith(".docx"):
@@ -157,26 +164,39 @@ def split_docs(docs):
 
 # ================= RETRIEVE (FIX CHÍNH) =================
 def retrieve(query, vs):
-    # lấy nhiều hơn
-    docs = vs.similarity_search(query, k=12)
-    return docs
+    docs = vs.similarity_search(query, k=25)  
+
+    def score(doc):
+        content = doc.page_content.lower()
+        q = query.lower().split()
+        return sum(1 for w in q if w in content)
+
+    docs = sorted(docs, key=score, reverse=True)
+
+    return docs[:8]  # giữ top tốt nhất
 
 # ================= CONTEXT (FIX CHÍNH) =================
 def build_context(docs):
-    context = ""
-    for d in docs:
-        context += f"\n\n📄 {d.metadata.get('source')}\n{d.page_content}"
+    context = []
 
-    return context[:20000]  # tăng context
+    for d in docs:
+        context.append(f"📄 {d.metadata.get('source')}\n{d.page_content}")
+
+    return "\n\n".join(context[:8])  
 
 # ================= PROMPT =================
 prompt = ChatPromptTemplate.from_template("""
-Bạn là AI đọc tài liệu.
+Bạn là AI đọc tài liệu nội bộ.
 
-YÊU CẦU:
-- Trả lời đầy đủ, không bỏ sót thông tin
-- Nếu danh sách dài → liệt kê đầy đủ
-- Không được tự ý cắt nội dung
+NGUYÊN TẮC:
+- CHỈ trả lời dựa trên Context
+- KHÔNG suy đoán, KHÔNG tự thêm thông tin
+- Nếu không tìm thấy → trả lời: "Không tìm thấy trong tài liệu"
+- Nếu câu hỏi yêu cầu danh sách → liệt kê đầy đủ
+
+FORMAT:
+- Trả lời rõ ràng, có cấu trúc
+- Có thể dùng bullet points nếu cần
 
 Context:
 {context}
